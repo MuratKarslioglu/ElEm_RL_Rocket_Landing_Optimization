@@ -49,6 +49,12 @@ def choose_action(observation):
     observation[6] = sol bacak temas durumu
     observation[7] = sağ bacak temas durumu
     """
+    left_leg = float(observation[6])
+    right_leg = float(observation[7])
+
+    if left_leg > 0.5 and right_leg > 0.5:
+        return 0
+
     action, _ = ppo_model.predict(observation, deterministic=True)
     return int(action)
     # Başlangıç kontrolcüsü: rastgele hareket eder.

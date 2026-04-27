@@ -3,29 +3,40 @@ import gymnasium as gym
 
 class DirectLandingRewardWrapper(gym.Wrapper):
     """
-    Doğrudan ve kaymadan inişi öğretmek için reward wrapper.
+    Direct landing reward wrapper.
 
-    Ana hedefler:
-    - Havada gereksiz kalmayı cezalandırmak
-    - Time limit'e kadar inmeme davranışını ağır cezalandırmak
-    - Yere temas etmeyi kötü göstermemek
-    - İki bacakla dengeli inişi ödüllendirmek
-    - Temas sonrası kaymayı episode sonunda değerlendirmek
+    Hedef:
+    - Yere indikten sonra motor basıp kaymayı engellemek
+    - İlk temas anında düşük yatay hızla oturmayı öğretmek
+    - Kayarak iyi reward almayı engellemek
+    - Sadece gerçekten direkt ve dengeli inişe büyük ödül vermek
     """
 
     def __init__(self, env):
         super().__init__(env)
+
         self.air_steps = 0
         self.first_contact_x = None
         self.max_post_contact_drift = 0.0
+        self.first_contact_done = False
+        self.landed_lock = False
 
     def reset(self, **kwargs):
         self.air_steps = 0
         self.first_contact_x = None
         self.max_post_contact_drift = 0.0
+        self.first_contact_done = False
+        self.landed_lock = False
+
         return self.env.reset(**kwargs)
 
     def step(self, action):
+        action = int(action)
+
+        # İki bacakla indikten sonra artık motor yok.
+        if self.landed_lock:
+            action = 0
+
         observation, reward, terminated, truncated, info = self.env.step(action)
 
         x_pos = float(observation[0])
@@ -45,70 +56,101 @@ class DirectLandingRewardWrapper(gym.Wrapper):
         extra_reward = 0.0
 
         # ----------------------------------------------------
-        # 1. Havada gereksiz kalmayı cezalandır
+        # 1. Havada gereksiz kalma cezası
         # ----------------------------------------------------
         if not any_contact:
             self.air_steps += 1
 
-            # Her havada kalınan step için küçük ceza
-            extra_reward -= 0.03
+            extra_reward -= 0.02
 
-            # Episode uzadıkça havada kalma daha pahalı olsun
-            if self.air_steps > 250:
-                extra_reward -= 0.08
-            if self.air_steps > 500:
-                extra_reward -= 0.20
-            if self.air_steps > 750:
-                extra_reward -= 0.50
+            if self.air_steps > 400:
+                extra_reward -= 0.05
+            if self.air_steps > 700:
+                extra_reward -= 0.15
 
-            # Yere yakınken hâlâ havada kalıyorsa daha fazla ceza
+        # ----------------------------------------------------
+        # 2. Motor kullanımı hafif ceza
+        # ----------------------------------------------------
+        # Çok sert değil; iniş için motor gerekli.
+        if action == 2:
+            extra_reward -= 0.005
+        elif action in (1, 3):
+            extra_reward -= 0.003
+
+        # ----------------------------------------------------
+        # 3. Havadayken iniş alanına yaklaşmayı teşvik et
+        # ----------------------------------------------------
+        if not any_contact:
+            # Merkezden uzaksa küçük ceza
+            extra_reward -= 0.10 * abs(x_pos)
+
+            # Yere yakınken yatay hız özellikle önemli
             if y_pos < 0.50:
-                extra_reward -= 0.10
-            if y_pos < 0.30:
-                extra_reward -= 0.25
+                extra_reward -= 1.5 * abs(x_vel)
+                extra_reward -= 0.6 * abs(angle)
+                extra_reward -= 0.3 * abs(angular_vel)
+
+                if y_vel < -0.50:
+                    extra_reward -= 1.5 * abs(y_vel)
 
         # ----------------------------------------------------
-        # 2. Motor kullanımını hafif cezalandır
+        # 4. İlk temas anını değerlendir
         # ----------------------------------------------------
-        # Çok sert yapmıyoruz; yoksa model motor kullanmaktan korkar.
-        if int(action) == 2:
-            extra_reward -= 0.01      # ana motor
-        elif int(action) in (1, 3):
-            extra_reward -= 0.005     # yan motorlar
-
-        # ----------------------------------------------------
-        # 3. Yere yaklaşırken inişe hazırlanmayı teşvik et
-        # ----------------------------------------------------
-        if y_pos < 0.45 and not any_contact:
-            extra_reward -= 1.5 * abs(x_vel)
-            extra_reward -= 0.8 * abs(angle)
-            extra_reward -= 0.4 * abs(angular_vel)
-
-            # Yere yakınken çok hızlı düşüyorsa ceza
-            if y_vel < -0.50:
-                extra_reward -= 2.0 * abs(y_vel)
-
-        # ----------------------------------------------------
-        # 4. İlk temas noktasını kaydet
-        # ----------------------------------------------------
-        if any_contact and self.first_contact_x is None:
+        if any_contact and not self.first_contact_done:
+            self.first_contact_done = True
             self.first_contact_x = x_pos
 
+            extra_reward += 5.0
+
+            if both_contact:
+                extra_reward += 10.0
+            else:
+                extra_reward -= 25.0
+
+            if abs(x_vel) < 0.04:
+                extra_reward += 45.0
+            elif abs(x_vel) < 0.08:
+                extra_reward += 25.0
+            elif abs(x_vel) < 0.14:
+                extra_reward += 5.0
+            else:
+                extra_reward -= 160.0 * abs(x_vel)
+
+            if abs(y_vel) < 0.25:
+                extra_reward += 20.0
+            elif abs(y_vel) < 0.35:
+                extra_reward += 8.0
+            else:
+                extra_reward -= 70.0 * abs(y_vel)
+
+            if abs(angle) < 0.12:
+                extra_reward += 20.0
+            elif abs(angle) < 0.20:
+                extra_reward += 8.0
+            else:
+                extra_reward -= 50.0 * abs(angle)
+
+            if abs(x_pos) <= 0.20:
+                extra_reward += 20.0
+            else:
+                extra_reward -= 120.0 * abs(x_pos)
         # ----------------------------------------------------
-        # 5. Temas sonrası kaymayı sadece takip et
+        # 5. Temas sonrası drift takip
         # ----------------------------------------------------
-        # Burada her frame ceza vermiyoruz.
-        # Çünkü sürekli temas cezası modelin yere inmekten korkmasına sebep olur.
         if any_contact and self.first_contact_x is not None:
             drift = abs(x_pos - self.first_contact_x)
             self.max_post_contact_drift = max(self.max_post_contact_drift, drift)
 
+        # İki bacak temas ettiyse sonraki adımlarda motorları kapat.
+        if both_contact:
+            self.landed_lock = True
+
         # ----------------------------------------------------
-        # 6. Episode sonunda asıl iniş değerlendirmesi
+        # 6. Episode sonu değerlendirme
         # ----------------------------------------------------
+       
         if terminated or truncated:
             in_landing_zone = abs(x_pos) <= 0.20
-
             stable_landing = (
                 both_contact
                 and in_landing_zone
@@ -118,37 +160,48 @@ class DirectLandingRewardWrapper(gym.Wrapper):
                 and abs(angular_vel) <= 1.00
             )
 
+            very_direct_landing = (
+                stable_landing
+                and self.max_post_contact_drift <= 0.03
+            )
+
             direct_landing = (
                 stable_landing
                 and self.max_post_contact_drift <= 0.05
             )
 
+            almost_direct = (
+                stable_landing
+                and self.max_post_contact_drift <= 0.10
+            )
+
             if truncated:
-                # Time limit'e kadar havada kalmak en kötü davranışlardan biri.
-                extra_reward -= 1000.0
+                extra_reward -= 500.0
+
+            elif very_direct_landing:
+                extra_reward += 220.0
 
             elif direct_landing:
-                # Hem düzgün indi hem de kaymadı.
-                extra_reward += 300.0
+                extra_reward += 150.0
+
+            elif almost_direct:
+                extra_reward += 20.0
+                extra_reward -= 250.0 * self.max_post_contact_drift
 
             elif stable_landing:
-                # Düzgün indi ama biraz kaydı.
-                extra_reward += 180.0
-                extra_reward -= 100.0 * self.max_post_contact_drift
+                extra_reward -= 350.0 * self.max_post_contact_drift
 
             elif both_contact:
-                # İki bacak temas var ama iniş kalitesi iyi değil.
-                extra_reward += 60.0
-                extra_reward -= 80.0 * self.max_post_contact_drift
+                extra_reward -= 100.0
+                extra_reward -= 250.0 * self.max_post_contact_drift
 
             else:
-                # Çakılma, tek bacak, kötü bitiş.
                 extra_reward -= 150.0
-
         shaped_reward = reward + extra_reward
 
         info["direct_landing_extra_reward"] = extra_reward
         info["max_post_contact_drift"] = self.max_post_contact_drift
         info["air_steps"] = self.air_steps
+        info["landed_lock"] = self.landed_lock
 
         return observation, shaped_reward, terminated, truncated, info
