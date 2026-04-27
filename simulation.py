@@ -14,9 +14,10 @@ Kontroller:
 import random
 import time
 
+
 import gymnasium as gym
 import pygame
-
+from stable_baselines3 import PPO
 
 # ============================================================
 # STUDENT AREA
@@ -48,7 +49,13 @@ def choose_action(observation):
 
     # Başlangıç kontrolcüsü: rastgele hareket eder.
     # Öğrenciler bu satırı kendi karar algoritmalarıyla değiştirecek.
-    return random.randint(0, 3)
+    
+    model = PPO.load("ppo_lunar_lander_model.zip")
+
+  
+    action, _states = model.predict(observation, deterministic=True)
+    return int(action)
+
 
 
 # ============================================================
