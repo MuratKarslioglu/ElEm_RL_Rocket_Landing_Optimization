@@ -22,7 +22,11 @@ import pygame
 # STUDENT AREA
 # Öğrenciler sadece bu fonksiyonu değiştirecek.
 # ============================================================
+from stable_baselines3 import PPO
 
+MODEL_PATH = "models/direct_landing_from_scratch.zip"
+
+ppo_model = PPO.load(MODEL_PATH)
 def choose_action(observation):
     """
     Öğrencilerin görevi:
@@ -45,10 +49,11 @@ def choose_action(observation):
     observation[6] = sol bacak temas durumu
     observation[7] = sağ bacak temas durumu
     """
-
+    action, _ = ppo_model.predict(observation, deterministic=True)
+    return int(action)
     # Başlangıç kontrolcüsü: rastgele hareket eder.
     # Öğrenciler bu satırı kendi karar algoritmalarıyla değiştirecek.
-    return random.randint(0, 3)
+    #return random.randint(0, 3)
 
 
 # ============================================================
@@ -153,15 +158,15 @@ def calculate_landing_score(state):
     score = 0
 
     if checks["in_landing_zone"]:
-        score += 30
+        score += 45
     if checks["slow_vertical_landing"]:
-        score += 25
+        score += 35
     if checks["slow_horizontal_motion"]:
-        score += 15
+        score += 20
     if checks["stable_angle"]:
-        score += 15
+        score += 20
     if checks["stable_angular_velocity"]:
-        score += 10
+        score += 20
 
     # İki bacak teması zorunlu ön koşuldur, küçük tamamlayıcı puan verilir.
     score += 5
