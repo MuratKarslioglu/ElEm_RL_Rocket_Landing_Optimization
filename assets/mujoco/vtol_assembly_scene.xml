@@ -1,0 +1,38 @@
+<mujoco model="vtol_assembly_scene">
+  <compiler angle="degree" autolimits="true" meshdir="."/>
+
+  <option timestep="0.01" gravity="0 0 -9.81"/>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" rgb1="0.62 0.78 0.95" rgb2="0.08 0.12 0.18" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.18 0.20 0.22" rgb2="0.26 0.28 0.30" width="512" height="512"/>
+    <material name="ground_grid" texture="grid" texrepeat="5 5" reflectance="0.15"/>
+    <material name="steel_satin" rgba="0.63 0.63 0.63 1"/>
+    <mesh name="vtol_assembly_v5" file="vtol_assembly_v5.obj" scale="0.01 0.01 0.01"/>
+  </asset>
+
+  <worldbody>
+    <light name="key_light" pos="0 -4 6" dir="0 1 -1" directional="true"/>
+    <camera name="overview" pos="0 -5 2.5" xyaxes="1 0 0 0 0.45 0.89"/>
+
+    <geom name="ground" type="plane" size="8 8 0.1" material="ground_grid"/>
+
+    <body name="vtol_body" pos="0 0 1.1">
+      <freejoint name="vtol_freejoint"/>
+      <geom
+        name="vtol_visual"
+        type="mesh"
+        mesh="vtol_assembly_v5"
+        material="steel_satin"
+        contype="0"
+        conaffinity="0"
+      />
+      <geom
+        name="vtol_collision"
+        type="box"
+        size="0.45 0.45 0.30"
+        rgba="0.2 0.6 1.0 0.15"
+      />
+    </body>
+  </worldbody>
+</mujoco>

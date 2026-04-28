@@ -114,3 +114,13 @@ Bu bölümde şu bilgiler verilmelidir:
 ## Not
 
 Öğrenciler, simülasyon ortamındaki değerlendirme fonksiyonlarını ve metrik hesaplama bölümlerini değiştirmemelidir. Geliştirme yapılması beklenen ana bölüm, ajanın aksiyon seçme mekanizmasıdır.
+
+## MuJoCo VTOL Environment
+
+`vtol_assembly_v5.obj` ve `vtol_assembly_v5.mtl` dosyaları `assets/mujoco/` klasörüne eklenmiştir. MuJoCo tarafında `assets/mujoco/vtol_assembly_scene.xml` sahnesi ve bu sahneyi kullanan `mujoco_vtol_env.py` ortamı oluşturulmuştur.
+
+Gymnasium uyumlu MuJoCo iniş ortamını çalıştırmak için:
+
+```bash
+python3 mujoco_vtol_env.py
+```
