@@ -13,6 +13,7 @@ Kontroller:
 
 import random
 import time
+import importlib
 
 import gymnasium as gym
 import pygame
@@ -81,6 +82,15 @@ LOW_REWARD_SCORE_CAP = 70
 # Simülasyon ayarları
 FPS_DELAY = 0.02
 PAUSED_DELAY = 0.05
+
+# Takla + güvenli iniş görevi için ayarlanabilir ortam parametreleri.
+# Bu değerler değiştirilerek görev zorluğu hızlıca ayarlanabilir.
+CUSTOM_START_ENABLED = True
+START_HEIGHT_OFFSET = 4.0
+INITIAL_ANGLE = 0.0
+INITIAL_ANGULAR_VELOCITY = 5.0
+MAIN_ENGINE_POWER_SCALE = 1.15
+SIDE_ENGINE_POWER_SCALE = 1.00
 
 # Panel ayarları
 PANEL_WIDTH = 285
@@ -295,6 +305,88 @@ def get_simulation_label(waiting_for_space, paused):
     return "RUNNING"
 
 
+def configure_lunar_lander_engine_power(env):
+    """
+    LunarLander motor güçlerini ölçekler.
+
+    Gymnasium LunarLander, ana ve yan motor güçlerini ortam modülündeki
+    sabitlerden okur. Sabitler bulunamazsa simülasyon varsayılan güçlerle
+    çalışmaya devam eder.
+    """
+
+    try:
+        env_module = importlib.import_module(env.unwrapped.__class__.__module__)
+    except (AttributeError, ImportError):
+        return
+
+    if hasattr(env_module, "MAIN_ENGINE_POWER"):
+        env_module.MAIN_ENGINE_POWER = 13.0 * MAIN_ENGINE_POWER_SCALE
+
+    if hasattr(env_module, "SIDE_ENGINE_POWER"):
+        env_module.SIDE_ENGINE_POWER = 0.6 * SIDE_ENGINE_POWER_SCALE
+
+
+def configure_lander_start(env):
+    """
+    Her reset sonrası lander başlangıcını takla görevi için ayarlar.
+
+    START_HEIGHT_OFFSET roketi daha yukarı taşır.
+    INITIAL_ANGULAR_VELOCITY pozitif/negatif verilerek takla yönü değiştirilebilir.
+    """
+
+    if not CUSTOM_START_ENABLED:
+        return False
+
+    lander = getattr(env.unwrapped, "lander", None)
+    legs = getattr(env.unwrapped, "legs", [])
+
+    if lander is None:
+        return False
+
+    lander.position = (lander.position.x, lander.position.y + START_HEIGHT_OFFSET)
+    lander.angle = INITIAL_ANGLE
+    lander.angularVelocity = INITIAL_ANGULAR_VELOCITY
+
+    for leg in legs:
+        leg.position = (leg.position.x, leg.position.y + START_HEIGHT_OFFSET)
+        leg.angle = INITIAL_ANGLE
+        leg.angularVelocity = INITIAL_ANGULAR_VELOCITY
+
+    return True
+
+
+def sync_observation_with_custom_start(observation, start_was_configured):
+    """
+    İlk aksiyonun da güncel başlangıç ayarlarını görmesi için observation'ı günceller.
+    """
+
+    if not start_was_configured:
+        return observation
+
+    observation = observation.copy()
+    observation[1] = float(observation[1]) + START_HEIGHT_OFFSET / (400 / 30 / 2)
+    observation[4] = INITIAL_ANGLE
+    observation[5] = INITIAL_ANGULAR_VELOCITY * 20 / 50
+
+    return observation
+
+
+def print_environment_settings():
+    """
+    Ayarlanabilir görev parametrelerini terminale basar.
+    """
+
+    print("-" * 50)
+    print("Custom flip landing settings")
+    print(f"Custom Start Enabled: {CUSTOM_START_ENABLED}")
+    print(f"Start Height Offset: {START_HEIGHT_OFFSET}")
+    print(f"Initial Angle: {INITIAL_ANGLE}")
+    print(f"Initial Angular Velocity: {INITIAL_ANGULAR_VELOCITY}")
+    print(f"Main Engine Power Scale: {MAIN_ENGINE_POWER_SCALE}")
+    print(f"Side Engine Power Scale: {SIDE_ENGINE_POWER_SCALE}")
+    print("-" * 50)
+
+
 def draw_info_panel(env, font, total_reward, task_score, physical_score, status,
                     success, waiting_for_space, paused):
     """
@@ -355,6 +447,8 @@ def reset_episode(env, episode):
     """
 
     observation, info = env.reset()
+    start_was_configured = configure_lander_start(env)
+    observation = sync_observation_with_custom_start(observation, start_was_configured)
 
     episode_data = {
         "episode": episode,
@@ -434,6 +528,9 @@ def main():
     pygame.init()
 
     env = gym.make("LunarLander-v3", render_mode="human")
+    configure_lunar_lander_engine_power(env)
+    print_environment_settings()
+
     observation, info, episode_data = reset_episode(env, episode=1)
     font = pygame.font.SysFont("Arial", FONT_SIZE)
 
